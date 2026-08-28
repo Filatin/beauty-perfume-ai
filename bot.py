@@ -28,7 +28,7 @@ if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
 
 # 2. Настройка Gemini API
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.5-flash")
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 # 3. Настройка логирования
 logging.basicConfig(

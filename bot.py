@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import asyncio
+import html
 from dotenv import load_dotenv
 
 from aiohttp import web
@@ -28,8 +29,7 @@ if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
     sys.exit(1)
 
 # 2. Настройка Gemini API
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+genai.configure(api_key=GEMINI_API_KEY.strip())
 
 # 3. Настройка логирования
 logging.basicConfig(
@@ -38,14 +38,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 4. Инициализация бота и диспетчера
+# 4. Инициализация бота
 bot = Bot(
-    token=TELEGRAM_BOT_TOKEN,
+    token=TELEGRAM_BOT_TOKEN.strip(),
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 dp = Dispatcher()
 
-# --- ВЕБ-СЕРВЕР ДЛЯ ХОСТИНГА RENDER ---
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER (HEALTH CHECK) ---
 
 async def handle_ping(request):
     return web.Response(text="Beauty Bot is running 24/7!")
@@ -128,7 +128,7 @@ Skopiuj i wyślij z nazwą swoich perfum:
 • "📦 Opis Allegro":
 📦 <b>Tryb: Opis Allegro (PL)</b>
 
-Skopiuj i wyślij z nazwą swoich perfum:
+Skopiuj i wyślij z nazwą своих perfum:
 <code>Allegro: Nazwa Perfum</code>
 <i>(np. kliknij aby skopiować: <code>Allegro: Tom Ford Tobacco Vanille</code>)</i>
 
@@ -153,7 +153,7 @@ A) Jeśli wiadomość zawiera "Insta:" lub "Instagram PL":
 👉 <b>Kup teraz przez link w bio!</b>
 #perfumy #zapach #beautypl #[markaperfum]
 
-B) Если wiadomość zawiera "Allegro:" lub "Opis Allegro":
+B) Jeśli wiadomość zawiera "Allegro:" lub "Opis Allegro":
 📦 <b>OPIS ALLEGRO / SKLEP (PL)</b>
 🏷 <b>Tytuł:</b> [SEO Tytuł z marką, modelem i pojemnością]
 💎 <b>Opis:</b> [Zmysłowy opis sprzedażowy]
@@ -169,7 +169,28 @@ D) Jeśli podano samą nazwę perfum bez prefiksu:
 Zapytaj: "W jakim formacie przygotować treść dla <b>[nazwa]</b>? Wybierz i wyślij: <code>Insta: [nazwa]</code>, <code>Allegro: [nazwa]</code> lub <code>Dupes: [nazwa]</code>"
 """
 
-# --- ОБРАБОТЧИКИ СООБЩЕНИЙ ---
+# Функция вызова Gemini с перебором доступных моделей
+def generate_ai_text(prompt: str) -> str:
+    candidate_models = [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-pro"
+    ]
+    last_error = None
+    for model_name in candidate_models:
+        try:
+            m = genai.GenerativeModel(model_name)
+            res = m.generate_content(prompt)
+            if res and res.text:
+                return res.text
+        except Exception as err:
+            last_error = err
+            continue
+    raise last_error
+
+# --- ОБРАБОТЧИКИ ---
 
 @dp.message(CommandStart())
 @dp.message(F.text.in_(["⬅️ Zmień język", "⬅️ Change language"]))
@@ -203,19 +224,19 @@ async def handle_ai_generation(message: Message):
     prompt = build_prompt(message.text)
 
     try:
-        response = await asyncio.to_thread(model.generate_content, prompt)
-        reply_text = response.text
+        reply_text = await asyncio.to_thread(generate_ai_text, prompt)
         try:
             await message.answer(reply_text, parse_mode=ParseMode.HTML)
         except Exception:
             await message.answer(reply_text, parse_mode=None)
     except Exception as e:
         logger.error(f"Error during AI generation: {e}")
+        error_msg = html.escape(str(e))
         await message.answer(
-            "⚠️ <i>Wystąpił błąd podczas generowania odpowiedzi. Spróbuj ponownie za chwilę.</i>"
+            f"⚠️ <b>Błąd API:</b>\n<code>{error_msg}</code>\n\n<i>Sprawdź swój GEMINI_API_KEY lub uprawnienia konta.</i>"
         )
 
-# --- ГЛАВНЫЙ ЗАПУСК ---
+# --- ЗАПУСК ---
 
 async def main():
     logger.info("Starting web server...")

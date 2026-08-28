@@ -33,7 +33,7 @@ GEMINI_API_KEY = GEMINI_API_KEY.strip().strip('"').strip("'")
 
 # 2. Настройка Gemini API на актуальную модель
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-3.6-flash")
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 # 3. Настройка логирования
 logging.basicConfig(

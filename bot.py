@@ -28,12 +28,12 @@ if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
     logging.critical("ОШИБКА: Задайте TELEGRAM_BOT_TOKEN и GEMINI_API_KEY")
     sys.exit(1)
 
-# Очистка токенов от возможных лишних пробелов/кавычек
 TELEGRAM_BOT_TOKEN = TELEGRAM_BOT_TOKEN.strip().strip('"').strip("'")
 GEMINI_API_KEY = GEMINI_API_KEY.strip().strip('"').strip("'")
 
-# 2. Настройка Gemini API
+# 2. Настройка Gemini API на актуальную модель
 genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-3.6-flash")
 
 # 3. Настройка логирования
 logging.basicConfig(
@@ -49,7 +49,7 @@ bot = Bot(
 )
 dp = Dispatcher()
 
-# --- ВЕБ-СЕРВЕР ДЛЯ HEALTH CHECK НА RENDER ---
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER (HEALTH CHECK) ---
 
 async def handle_ping(request):
     return web.Response(text="Beauty Bot is running 24/7!")
@@ -173,31 +173,6 @@ D) Jeśli podano samą nazwę perfum bez prefiksu:
 Zapytaj: "W jakim formacie przygotować treść dla <b>[nazwa]</b>? Wybierz i wyślij: <code>Insta: [nazwa]</code>, <code>Allegro: [nazwa]</code> lub <code>Dupes: [nazwa]</code>"
 """
 
-# Функция динамического поиска рабочей модели
-def generate_ai_text(prompt: str) -> str:
-    # 1. Запрашиваем у Google список всех доступных моделей для этого ключа
-    available_models = [
-        m.name for m in genai.list_models()
-        if "generateContent" in m.supported_generation_methods
-    ]
-
-    if not available_models:
-        raise RuntimeError(
-            "Twój klucz API nie ma dostępu do żadnych modeli. "
-            "Wygeneruj nowy darmowy klucz na: aistudio.google.com"
-        )
-
-    # 2. Выбираем лучшую доступную Flash-модель (или первую из списка)
-    chosen_model = next((m for m in available_models if "flash" in m.lower()), available_models[0])
-    logger.info(f"Using Google Model: {chosen_model}")
-
-    m = genai.GenerativeModel(chosen_model)
-    res = m.generate_content(prompt)
-
-    if res and res.text:
-        return res.text
-    raise RuntimeError("Model AI zwrócił pustą odpowiedź.")
-
 # --- ОБРАБОТЧИКИ СООБЩЕНИЙ ---
 
 @dp.message(CommandStart())
@@ -232,7 +207,8 @@ async def handle_ai_generation(message: Message):
     prompt = build_prompt(message.text)
 
     try:
-        reply_text = await asyncio.to_thread(generate_ai_text, prompt)
+        response = await asyncio.to_thread(model.generate_content, prompt)
+        reply_text = response.text
         try:
             await message.answer(reply_text, parse_mode=ParseMode.HTML)
         except Exception:

@@ -4,14 +4,14 @@ import logging
 import asyncio
 from dotenv import load_dotenv
 
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.types import (
     Message,
     ReplyKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardRemove
+    KeyboardButton
 )
 from aiogram.client.default import DefaultBotProperties
 import google.generativeai as genai
@@ -21,9 +21,10 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+PORT = int(os.getenv("PORT", 8080))
 
 if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
-    logging.critical("ОШИБКА: Задайте TELEGRAM_BOT_TOKEN и GEMINI_API_KEY в файле .env")
+    logging.critical("ОШИБКА: Задайте TELEGRAM_BOT_TOKEN и GEMINI_API_KEY")
     sys.exit(1)
 
 # 2. Настройка Gemini API
@@ -44,10 +45,23 @@ bot = Bot(
 )
 dp = Dispatcher()
 
+# --- ВЕБ-СЕРВЕР ДЛЯ ХОСТИНГА RENDER ---
+
+async def handle_ping(request):
+    return web.Response(text="Beauty Bot is running 24/7!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    logger.info(f"Healthcheck web server started on port {PORT}")
+
 # --- КЛАВИАТУРЫ ---
 
 def get_language_keyboard() -> ReplyKeyboardMarkup:
-    """Клавиатура выбора языка (Start)"""
     return ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -59,7 +73,6 @@ def get_language_keyboard() -> ReplyKeyboardMarkup:
     )
 
 def get_pl_keyboard() -> ReplyKeyboardMarkup:
-    """Клавиатура для польского меню"""
     return ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -75,7 +88,6 @@ def get_pl_keyboard() -> ReplyKeyboardMarkup:
     )
 
 def get_en_keyboard() -> ReplyKeyboardMarkup:
-    """Клавиатура для английского меню"""
     return ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -90,7 +102,7 @@ def get_en_keyboard() -> ReplyKeyboardMarkup:
         resize_keyboard=True
     )
 
-# --- СИСТЕМНЫЙ ПРОМПТ (Из сценария Make) ---
+# --- СИСТЕМНЫЙ ПРОМПТ ---
 
 def build_prompt(user_text: str) -> str:
     return f"""Jesteś profesjonalnym copywriterem e-commerce w branży Beauty & Perfumes.
@@ -141,7 +153,7 @@ A) Jeśli wiadomość zawiera "Insta:" lub "Instagram PL":
 👉 <b>Kup teraz przez link w bio!</b>
 #perfumy #zapach #beautypl #[markaperfum]
 
-B) Jeśli wiadomość zawiera "Allegro:" lub "Opis Allegro":
+B) Если wiadomość zawiera "Allegro:" lub "Opis Allegro":
 📦 <b>OPIS ALLEGRO / SKLEP (PL)</b>
 🏷 <b>Tytuł:</b> [SEO Tytuł z marką, modelem i pojemnością]
 💎 <b>Opis:</b> [Zmysłowy opis sprzedażowy]
@@ -157,7 +169,7 @@ D) Jeśli podano samą nazwę perfum bez prefiksu:
 Zapytaj: "W jakim formacie przygotować treść dla <b>[nazwa]</b>? Wybierz i wyślij: <code>Insta: [nazwa]</code>, <code>Allegro: [nazwa]</code> lub <code>Dupes: [nazwa]</code>"
 """
 
-# --- ХЕНДЛЕРЫ ---
+# --- ОБРАБОТЧИКИ СООБЩЕНИЙ ---
 
 @dp.message(CommandStart())
 @dp.message(F.text.in_(["⬅️ Zmień język", "⬅️ Change language"]))
@@ -169,7 +181,6 @@ async def handle_start(message: Message):
     )
     await message.answer(text, reply_markup=get_language_keyboard())
 
-
 @dp.message(F.text == "🇵🇱 Polski")
 async def handle_pl_menu(message: Message):
     text = (
@@ -177,7 +188,6 @@ async def handle_pl_menu(message: Message):
         "Wybierz interesujący Cię format poniżej:"
     )
     await message.answer(text, reply_markup=get_pl_keyboard())
-
 
 @dp.message(F.text == "🇬🇧 English")
 async def handle_en_menu(message: Message):
@@ -187,38 +197,33 @@ async def handle_en_menu(message: Message):
     )
     await message.answer(text, reply_markup=get_en_keyboard())
 
-
 @dp.message(F.text)
 async def handle_ai_generation(message: Message):
-    # Показываем статус набора текста
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-
     prompt = build_prompt(message.text)
 
     try:
-        # Запрос к Google Gemini
         response = await asyncio.to_thread(model.generate_content, prompt)
         reply_text = response.text
-
-        # Отправляем ответ с HTML форматированием
         try:
             await message.answer(reply_text, parse_mode=ParseMode.HTML)
         except Exception:
-            # Запасной вариант, если модель вернула некорректный HTML тег
             await message.answer(reply_text, parse_mode=None)
-
     except Exception as e:
         logger.error(f"Error during AI generation: {e}")
         await message.answer(
             "⚠️ <i>Wystąpił błąd podczas generowania odpowiedzi. Spróbuj ponownie za chwilę.</i>"
         )
 
+# --- ГЛАВНЫЙ ЗАПУСК ---
 
 async def main():
-    logger.info("Bot is starting up...")
+    logger.info("Starting web server...")
+    await start_web_server()
+    
+    logger.info("Connecting bot to Telegram...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     try:

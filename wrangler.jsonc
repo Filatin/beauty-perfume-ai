@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "beauty-perfume-ai",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-29",
+  "vars": {
+    "GEMINI_MODEL": "gemini-3.5-flash-lite"
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
